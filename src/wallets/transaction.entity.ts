@@ -14,7 +14,7 @@ export class Transaction {
 
   @Column()
   status: 'pending' | 'success' | 'failed';
-
+ 
   @Column({ nullable: true, unique: true })
   reference?: string;
 

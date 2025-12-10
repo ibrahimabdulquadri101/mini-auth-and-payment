@@ -1,10 +1,16 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Wallet } from './wallet.entity';
 import { Transaction } from './transaction.entity';
 import { Repository, DataSource } from 'typeorm';
 import { generateReference } from '../utils/id.utils';
 import axios from 'axios';
+import { User } from 'src/users/user.entity';
 
 @Injectable()
 export class WalletService {
@@ -15,13 +21,20 @@ export class WalletService {
   ) {}
 
   // ensure wallet exists for user (call after user created)
-  async ensureWallet(user) {
-    if (!user.wallet) {
-      const wallet = this.walletRepo.create({ owner: user, balance: 0 });
-      await this.walletRepo.save(wallet);
-      user.wallet = wallet;
+  async ensureWallet(user: User) {
+    const repo = this.dataSource.getRepository(Wallet);
+
+    let wallet = await repo.findOne({ where: { owner: { id: user.id } } });
+
+    if (!wallet) {
+      wallet = repo.create({
+        owner: user,
+        balance: 0,
+      });
+      await repo.save(wallet);
     }
-    return user.wallet;
+
+    return wallet;
   }
 
   // Deposit init (create pending tx & call Paystack)
@@ -41,13 +54,17 @@ export class WalletService {
 
     // call Paystack initialize
     const PAYSTACK = process.env.PAYSTACK_SECRET_KEY;
-    const resp = await axios.post('https://api.paystack.co/transaction/initialize', {
-      email: user.email,
-      amount, // Paystack expects kobo/cents
-      reference,
-    }, {
-      headers: { Authorization: `Bearer ${PAYSTACK}` },
-    });
+    const resp = await axios.post(
+      'https://api.paystack.co/transaction/initialize',
+      {
+        email: user.email,
+        amount, // Paystack expects kobo/cents
+        reference,
+      },
+      {
+        headers: { Authorization: `Bearer ${PAYSTACK}` },
+      },
+    );
 
     // store Paystack returned reference if different (make sure idempotent)
     const authUrl = resp.data.data.authorization_url;
@@ -71,19 +88,34 @@ export class WalletService {
     if (!reference) return { status: false };
 
     // Idempotent: perform in transaction
-    return this.dataSource.transaction(async manager => {
-      const tx = await manager.getRepository(Transaction).findOne({ where: { reference }, lock: { mode: 'pessimistic_write' }, relations: ['wallet'] });
+    return this.dataSource.transaction(async (manager) => {
+      // Step 1: Find transaction with wallet relation (no lock yet)
+      const tx = await manager.getRepository(Transaction).findOne({
+        where: { reference },
+        relations: ['wallet'],
+      });
+      
       if (!tx) return { status: true }; // ignore unknown
       if (tx.status === 'success') return { status: true }; // already processed
 
       if (status === 'success') {
+        // Step 2: Lock the wallet using raw query or query builder
+        const wallet = await manager.getRepository(Wallet)
+          .createQueryBuilder('wallet')
+          .setLock('pessimistic_write')
+          .where('wallet.id = :id', { id: tx.wallet.id })
+          .getOne();
+        
+        if (!wallet) throw new NotFoundException('Wallet not found');
+        
+        // Step 3: Update transaction status
         tx.status = 'success';
         await manager.save(tx);
-
-        const wallet = tx.wallet;
-        if (!wallet) throw new NotFoundException('Wallet not found');
+        
+        // Step 4: Update wallet balance
         wallet.balance = Number(wallet.balance) + Number(tx.amount);
         await manager.save(wallet);
+        
         return { status: true };
       } else {
         tx.status = 'failed';
@@ -112,7 +144,13 @@ export class WalletService {
       take: limit,
       skip: offset,
     });
-    return txs.map(t => ({ type: t.type, amount: Number(t.amount), status: t.status, reference: t.reference, createdAt: t.createdAt }));
+    return txs.map((t) => ({
+      type: t.type,
+      amount: Number(t.amount),
+      status: t.status,
+      reference: t.reference,
+      createdAt: t.createdAt,
+    }));
   }
 
   // Transfer: atomic, locked
@@ -120,23 +158,38 @@ export class WalletService {
     if (amount <= 0) throw new BadRequestException('Invalid amount');
     const senderWallet = await this.ensureWallet(user);
 
-    return this.dataSource.transaction(async manager => {
+    return this.dataSource.transaction(async (manager) => {
       // lock sender
-      const s = await manager.getRepository(Wallet).findOne({ where: { id: senderWallet.id }, lock: { mode: 'pessimistic_write' } });
+      const s = await manager.getRepository(Wallet).findOne({
+        where: { id: senderWallet.id },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!s) throw new NotFoundException('Sender wallet not found');
-      if (Number(s.balance) < amount) throw new BadRequestException('Insufficient balance');
+      if (Number(s.balance) < amount)
+        throw new BadRequestException('Insufficient balance');
 
       // find recipient by wallet_number (we'll treat wallet_number as wallet.id here)
-      const recipient = await manager.getRepository(Wallet).findOne({ where: { id: wallet_number }, lock: { mode: 'pessimistic_write' } });
+      const recipient = await manager.getRepository(Wallet).findOne({
+        where: { id: wallet_number },
+        lock: { mode: 'pessimistic_write' },
+      });
       if (!recipient) throw new NotFoundException('Recipient not found');
-      if (recipient.id === s.id) throw new BadRequestException('Cannot transfer to the same wallet');
+      if (recipient.id === s.id)
+        throw new BadRequestException('Cannot transfer to the same wallet');
 
       // perform debit and credit
       s.balance = Number(s.balance) - amount;
       recipient.balance = Number(recipient.balance) + amount;
 
-      const debitTx = manager.getRepository(Transaction).create({ type: 'transfer', amount, status: 'success', wallet: s });
-      const creditTx = manager.getRepository(Transaction).create({ type: 'transfer', amount, status: 'success', wallet: recipient });
+      const debitTx = manager
+        .getRepository(Transaction)
+        .create({ type: 'transfer', amount, status: 'success', wallet: s });
+      const creditTx = manager.getRepository(Transaction).create({
+        type: 'transfer',
+        amount,
+        status: 'success',
+        wallet: recipient,
+      });
 
       await manager.save([s, recipient]);
       await manager.save([debitTx, creditTx]);
