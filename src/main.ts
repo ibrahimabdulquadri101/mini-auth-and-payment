@@ -1,27 +1,3 @@
-// import { NestFactory } from '@nestjs/core';
-// import { AppModule } from './app.module';
-// import { ValidationPipe } from '@nestjs/common';
-// import * as express from 'express';
-
-// async function bootstrap() {
-//   const app = await NestFactory.create(AppModule, {
-//     bodyParser: true,
-//   });
-//   // Important: allow raw body for Paystack webhook path
-//   // We'll register the raw body parser for webhook route via express middleware
-//   app.use('/wallet/paystack/webhook', express.raw({ type: '*/*' }));
-
-//   app.useGlobalPipes(
-//     new ValidationPipe({
-//       transform: true,
-//       forbidNonWhitelisted: false,
-//     }),
-//   );
-//   await app.listen(process.env.PORT || 3000);
-//   console.log('Server started on port', process.env.PORT || 3000);
-// }
-// bootstrap();
-
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -35,13 +11,13 @@ async function bootstrap() {
   })
    app.enableCors({
     origin: [
-      'https://www.your-frontend-domain.com', // Your main frontend domain
+      'https://www.your-frontend-domain.com',
       'https://smellable-iris-nondeterministic.ngrok-free.dev', // The specific ngrok URL
-      'http://localhost:4200' // Your local development server (e.g., Angular/React)
+      'http://localhost:3000'
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Accept, Authorization',
-    credentials: true, // If you are using cookies or authorization headers
+    credentials: true,
   });
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));

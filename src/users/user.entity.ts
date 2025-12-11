@@ -12,7 +12,6 @@ export class User {
   @Column({ nullable: true })
   displayName: string;
 
-  // You may store googleId if desired
   @Column({ nullable: true })
   googleId: string;
 

@@ -20,7 +20,6 @@ export class UsersService {
     let user = await this.findByEmail(email);
     if (!user) {
       user = this.repo.create({ email, displayName, googleId });
-      // wallet created lazily in wallet service or via cascade
       await this.repo.save(user);
     }
     return user;

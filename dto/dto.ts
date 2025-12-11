@@ -98,7 +98,6 @@ export class ApiKeyListItemDto {
   createdAt: string;
 }
 
-// src/wallets/dto/deposit.dto.ts
 export class DepositDto {
   @ApiProperty({
     example: 50000,
@@ -120,7 +119,6 @@ export class DepositResponseDto {
   authorization_url: string;
 }
 
-// src/wallets/dto/transfer.dto.ts
 export class TransferDto {
   @ApiProperty({
     example: '123e4567-e89b-12d3-a456-426614174000',
@@ -147,13 +145,11 @@ export class TransferResponseDto {
   message: string;
 }
 
-// src/wallets/dto/balance.dto.ts
 export class BalanceResponseDto {
   @ApiProperty({ example: 150000, description: 'Balance in kobo/cents' })
   balance: number;
 }
 
-// src/wallets/dto/deposit-status.dto.ts
 export class DepositStatusDto {
   @ApiProperty({ example: 'ref_123e4567-e89b-12d3-a456-426614174000' })
   reference: string;
@@ -165,7 +161,6 @@ export class DepositStatusDto {
   amount: number;
 }
 
-// src/wallets/dto/transaction.dto.ts
 export class TransactionDto {
   @ApiProperty({ example: 'deposit', enum: ['deposit', 'transfer', 'fee'] })
   type: string;

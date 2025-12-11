@@ -20,10 +20,8 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       const displayName = profile.displayName;
       const googleId = profile.id;
 
-      // your method to create or fetch user
       const user = await this.authService.validateOrCreateGoogleUser(email, displayName, googleId);
 
-      // MUST pass null as first argument
       done(null, user);
     } catch (e) {
       done(e, false);
